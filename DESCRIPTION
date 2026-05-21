@@ -1,0 +1,27 @@
+Package: RNAEventProfiler
+Title: Multi-Resolution, Replicate-Aware Differential Analysis of RNA Events
+Version: 0.1.0
+Authors@R: c(
+    person(given = "C.", family = "Ramirez", role = c("aut", "cre"), email = "tua.email@example.com"),
+    person(given = "G.", family = "Bucciarelli", role = "aut"),
+    person(given = "T.", family = "Tebaldi", role = "aut")
+  )
+Description: A robust pipeline for multi-resolution, replicate-aware differential analysis of RNA events (such as editing) in complex experimental designs. It provides tools for site aggregation, statistical testing, and transcriptomic metaprofile generation.
+License: CC BY-NC-ND 4.0 + file LICENSE
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+Config/roxygen2/version: 8.0.0
+Depends: 
+    R (>= 4.1.0)
+Imports:
+    GenomicRanges,
+    IRanges,
+    S4Vectors,
+    SummarizedExperiment,
+    dplyr,
+    edgeR,
+    ggplot2,
+    limma,
+    rlang,
+    tidyr
+	

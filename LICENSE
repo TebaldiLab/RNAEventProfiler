@@ -1,0 +1,20 @@
+CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE LEGAL SERVICES. 
+
+This work is licensed under the Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License (CC BY-NC-ND 4.0).
+
+To view a copy of this license, visit:https://creativecommons.org/licenses/by-nc-nd/4.0/
+
+----------------------------------------------------------------------
+ACADEMIC CITATION POLICY:
+
+This R package is provided to the scientific community for research and demonstration purposes. If you use this software to generate results, analyses, or visualizations for any publication, preprint, or professional report, you MUST provide attribution to the authors.
+
+Until the official research paper is published, please cite this work as follows:
+
+Ramirez C., Bucciarelli G. et al., (2026). RNAEventProfiler: multi-resolution, replicate-aware differential analysis of RNA events in complex experimental designs
+GitHub Repository: https://github.com/TebaldiLab/RNAEventProfiler
+
+Once the formal paper is released, this citation requirement will be updated to reference the peer-reviewed publication.
+----------------------------------------------------------------------
+
+Copyright (c) 2026 Ramirez C., Bucciarelli G., Tebaldi T.
