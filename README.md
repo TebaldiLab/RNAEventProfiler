@@ -1,4 +1,3 @@
-# RNAEventProfiler
 <p align="center">
   <img src="man/figures/RNAEventProfiler_logo.png" alt="RNAEventProfiler Logo" width="180px">
 </p>
