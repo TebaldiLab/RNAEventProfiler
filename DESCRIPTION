@@ -24,4 +24,6 @@ Imports:
     limma,
     rlang,
     tidyr
-	
+URL: https://github.com/TebaldiLab/RNAEventProfiler
+BugReports: https://github.com/TebaldiLab/RNAEventProfiler/issues
+Config/Needs/website: logo.png

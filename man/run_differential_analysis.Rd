@@ -11,7 +11,7 @@ run_differential_analysis(
   norm_method = "TMM",
   method = "LRT",
   stat_type = "PValue",
-  p_threshold = 0.1,
+  p_threshold = 0.05,
   lfc_threshold = 0,
   delta_threshold = 0.01,
   alternative = "two.sided",
