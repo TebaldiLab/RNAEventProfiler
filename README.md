@@ -1,2 +1,1 @@
-# RNAEventProfiler
-# RNAEventProfiler <img src="man/figures/logo.png" align="right" height="139" />
+# RNAEventProfiler <img src="man/figures/RNAEventProfiler_logo.png" align="right" height="139" />
