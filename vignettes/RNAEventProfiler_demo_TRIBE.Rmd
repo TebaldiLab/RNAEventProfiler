@@ -122,8 +122,8 @@ p_calc <- plot_metaprofile(
   pos_df_cols = c(pos = "pos", transcript_id = "ensembl_transcript_id", count = "peak_id"),
   percentages = TRUE,
   total_bins = 100,
-  group_colors = meta_palette, smooth = T
-)
+  group_colors = meta_palette, 
+  smooth = T)
 
 p_calc
 ```
