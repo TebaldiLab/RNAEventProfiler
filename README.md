@@ -21,8 +21,8 @@ The original study utilized a TRIBE-STAMP experimental design featuring YTHDF-AD
 
 The workflow presented in the tutorials covers the following steps and functions:
 - ***generate_SE_object***: organizes the event counts, coverage, row and column annotation tables into a SummarizedExperimentObject
-- ***run_differential_analysis***: identifies differential events between conditions of interest, handling complex designs and multiple replicates. Relies on EdgeR glm.
 - ***aggregate_sites***: aggregates single-nucleotide events into user's defined peaks, regions or at the gene level.
+- ***run_differential_analysis***: identifies differential events between conditions of interest, handling complex designs and multiple replicates. Relies on EdgeR glm.
 - ***map_to_transcriptome***: performs swift genome-to-transcriptome mapping of event coordinates.
 - ***plot_metaprofile***: plots a metaprofile of the aggregated events localization from each transcript.
 
