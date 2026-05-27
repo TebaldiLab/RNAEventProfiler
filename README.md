@@ -9,7 +9,7 @@
 </p>
 
 ---
-RNAEventProfiler is an R package for differential analysis of RNA modification events from basic modification and coverage tables. The framework is platform-independent, applicable to diverse RNA modifications, and supports complex experimental designs through replicate-aware statistical modeling adapted from established transcriptomics workflows. Its statistical framework can be applied at nucleotide, region, and transcript resolution, enabling multi-resolution analysis of RNA modification changes. 
+RNAEventProfiler is an R package for differential analysis of RNA epitranscriptomic events from basic epitranscriptomic and coverage count tables. The framework is platform-independent, applicable to diverse RNA events, and supports complex experimental designs through replicate-aware statistical modeling adapted from established transcriptomics workflows. Its statistical framework can be applied at nucleotide, region, and transcript resolution, enabling multi-resolution analysis of RNA modification changes. 
 To facilitate biological interpretation, RNAEventProfiler also provides flexible visualization modules for summarizing site-level, regional, and transcript-level patterns.
 
 The package is still under development but we offer tutorials on two case studies from publicly available data:
