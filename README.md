@@ -15,7 +15,7 @@ To facilitate biological interpretation, RNAEventProfiler also provides flexible
 The package is still under development but we offer tutorials on two case studies from publicly available data:
 
 - **TRIBE-STAMP demo**: In this demo, we apply the RNAEventProfiler on a randomly selected, yet highly representative subset of 50,000 editing sites from the TRIBE dataset by *Flamand et al. (Genes & Development, 2022)*. Raw data was pre-processed using STAR for read alignment and the Bullseye pipeline for mutation calling.
-The original study utilized a TRIBE-STAMP experimental design featuring YTHDF-ADAR and YTHDF-APOBEC1 constructs. For this demonstration, we focus on the HyperTRIBE (A-to-I) events, comparing the YTHDF1-ADAR, YTHDF2-ADAR, and YTHDF3-ADAR constructs against the ADAR control. We provide this dataset to highlight the RNAEventProfiler's unique downstream capabilities—namely, the initial integration of data into a SummarizedExperiment object, followed by multiscale aggregation, differential event analysis, and metaprofile generation.
+The original study utilized a TRIBE-STAMP experimental design featuring YTHDF-ADAR and YTHDF-APOBEC1 constructs. For this demonstration, we focus on the HyperTRIBE (A-to-I) events, comparing the YTHDF1-ADAR, YTHDF2-ADAR, and YTHDF3-ADAR constructs against the ADAR control. We provide this dataset to highlight the RNAEventProfiler's unique downstream capabilities.
 
 - **Nanopore demo**: 
 
