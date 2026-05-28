@@ -26,4 +26,4 @@ The workflow presented in the tutorials covers the following steps and functions
 - ***map_to_transcriptome***: performs swift genome-to-transcriptome mapping of event coordinates.
 - ***plot_metaprofile***: plots a metaprofile of the aggregated events localization from each transcript.
 
-
+For any questions or issues please contact Christian Ramirez ***c.ramirezamarilla@unitn.it***
