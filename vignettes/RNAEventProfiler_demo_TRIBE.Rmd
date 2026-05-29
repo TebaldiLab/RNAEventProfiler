@@ -17,16 +17,13 @@ library(SummarizedExperiment)
 library(RNAEventProfiler)
 
 # Load Annotation Data 
-load("../inst/extdata/ens_anno_115_hs.RData") # function for the generation of the annotation data will be included in the full release of the RNAEventProfiler
-
+load("../data/ens_anno_115_hs.rda") # function for the generation of the annotation data will be included in the full release of the RNAEventProfiler
 ```
 
 ## First we create the SE object with the function create_SE_object, we give in input an event matrix, a coverage matrix, rowData and colData of a subset of 50k sites from the TRIBE experiment (Flammand et al., Genes Dev., 2022).
 ```{r}
-col_data <- read.csv("../inst/extdata/col_data.csv", row.names = 1, check.names = FALSE)
-event_matrix <- read.csv("../inst/extdata/event_matrix.csv", row.names = 1, check.names = FALSE)
-cov_matrix <- read.csv("../inst/extdata/cov_matrix.csv", row.names = 1, check.names = FALSE)
-row_data <- read.csv("../inst/extdata/row_data.csv", check.names = FALSE)
+# Load Case-Study data
+load("../data/TRIBE_CS_data.rda")
 
 se <- generate_SE_object(
   event_counts = event_matrix,
