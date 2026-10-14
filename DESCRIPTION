@@ -16,6 +16,7 @@ Depends:
 Imports:
     GenomicRanges,
     IRanges,
+    SingleCellExperiment,
     S4Vectors,
     SummarizedExperiment,
     dplyr,

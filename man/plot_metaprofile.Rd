@@ -20,13 +20,16 @@ plot_metaprofile(
   group_colors = NULL,
   default_color = "steelblue",
   smooth = FALSE,
-  span = 0.3
+  span = 0.3,
+  altExp_name = NULL
 )
 }
 \arguments{
 \item{df}{A data.frame or SummarizedExperiment object containing the site coordinates.}
 
 \item{anno_df}{A data.frame containing transcript annotations (lengths and start/end coordinates of UTRs and CDS).}
+
+\item{altExp_name}{Character or NULL. If set, use the named altExp of a SingleCellExperiment.}
 
 \item{join_by_cols}{Character vector. Columns to join \code{df} and \code{anno_df}. Default is "auto" (joins by common names).}
 

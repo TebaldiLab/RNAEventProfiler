@@ -16,7 +16,8 @@ run_differential_analysis(
   delta_threshold = 0.01,
   alternative = "two.sided",
   pseudocount_offset = 1e-06,
-  use_coverage_offset = TRUE
+  use_coverage_offset = TRUE,
+  altExp_name = NULL
 )
 }
 \arguments{
@@ -43,6 +44,8 @@ run_differential_analysis(
 \item{pseudocount_offset}{Numeric. Small offset added to coverage to avoid log(0) errors. Default: 1e-6.}
 
 \item{use_coverage_offset}{Logical. If TRUE, uses total coverage as an offset for ratio-based editing analysis. If FALSE, performs standard count-based RNA-seq analysis. Default: TRUE.}
+
+\item{altExp_name}{Character. Name of the altExp to analyze. If NULL, analyzes the main object. Default: NULL.}
 }
 \value{
 The input SummarizedExperiment object with comprehensive statistical results

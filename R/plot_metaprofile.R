@@ -2,9 +2,10 @@
 #'
 #' Maps transcriptomic coordinates of RNA events to normalized bins across the 5' UTR, CDS,
 #' and 3' UTR, generating a metaprofile distribution plot. Accepts either a standard data.frame
-#' or a SummarizedExperiment object.
+#' or a SummarizedExperiment object. Automatically unnests S4 List columns for multi-isoform mapping.
 #'
 #' @param df A data.frame or SummarizedExperiment object containing the site coordinates.
+#' @param altExp_name Character or NULL. If set, use the named altExp of a SingleCellExperiment.
 #' @param anno_df A data.frame containing transcript annotations (lengths and start/end coordinates of UTRs and CDS).
 #' @param join_by_cols Character vector. Columns to join `df` and `anno_df`. Default is "auto" (joins by common names).
 #' @param total_bins Integer. Total number of bins to divide the transcript into. Default: 100.
@@ -14,8 +15,8 @@
 #' @param filter_list List. Contains 'include' and/or 'exclude' regex patterns to filter sites based on `filter_col`. Default: NULL.
 #' @param filter_col Character. The column name on which to apply the `filter_list`. Default: "class".
 #' @param percentages Logical. If TRUE, plots the percentage of sites per bin. If FALSE, plots raw counts. Default: FALSE.
-#' @param pos_df_cols Named character vector. Maps standard internal names to the actual column names in `df` (e.g., transcript_id, pos, count).
-#' @param anno_df_cols Named character vector. Maps standard internal names to the actual column names in `anno_df` (e.g., utr5_start, cds_len, etc.).
+#' @param pos_df_cols Named character vector. Maps standard internal names to the actual column names in `df`.
+#' @param anno_df_cols Named character vector. Maps standard internal names to the actual column names in `anno_df`.
 #' @param group_colors Named character vector. Custom color palette for the groups specified in `split_by`. Default: NULL.
 #' @param default_color Character. Color of the line/points when `split_by` is NULL. Default: "steelblue".
 #' @param smooth Logical. If TRUE, applies LOESS smoothing to the metaprofile lines. Default: FALSE.
@@ -25,33 +26,62 @@
 #' @importFrom ggplot2 ggplot aes geom_smooth geom_line geom_point geom_vline scale_x_continuous scale_color_manual scale_fill_manual annotate labs theme_bw theme element_blank
 #' @importFrom dplyr mutate filter case_when all_of group_by summarise n_distinct ungroup inner_join
 #' @importFrom tidyr pivot_longer complete
-#' @importFrom rlang sym
+#' @importFrom rlang sym .data
 #' @importFrom SummarizedExperiment rowData
-#' @importFrom rlang .data
+#' @importFrom SingleCellExperiment altExp altExpNames
 #' @export
 plot_metaprofile <- function(df,
-                               anno_df,
-                               join_by_cols = "auto",
-                               total_bins = 100,
-                               proportions = c(utr5=0.07, cds=0.52, utr3=0.41),
-                               split_by = NULL,
-                               pivot_cols = NULL,
-                               filter_list = NULL,
-                               filter_col = "class",
-                               percentages = FALSE,
-                               pos_df_cols = NULL,
-                               anno_df_cols = NULL,
-                               group_colors = NULL,
-                               default_color = "steelblue",
-                               smooth = FALSE,
-                               span = 0.3) {
+                             anno_df,
+                             join_by_cols = "auto",
+                             total_bins = 100,
+                             proportions = c(utr5=0.07, cds=0.52, utr3=0.41),
+                             split_by = NULL,
+                             pivot_cols = NULL,
+                             filter_list = NULL,
+                             filter_col = "class",
+                             percentages = FALSE,
+                             pos_df_cols = NULL,
+                             anno_df_cols = NULL,
+                             group_colors = NULL,
+                             default_color = "steelblue",
+                             smooth = FALSE,
+                             span = 0.3,
+                             altExp_name = NULL) {
 
-  # ---- 1. Handle SummarizedExperiment Extraction ----
-  if (inherits(df, "SummarizedExperiment")) {
-    df <- as.data.frame(SummarizedExperiment::rowData(df))
+  if (!is.null(altExp_name)) {
+    if (!inherits(df, "SingleCellExperiment")) {
+      stop("'altExp_name' requires a SingleCellExperiment input.")
+    }
+    if (!altExp_name %in% SingleCellExperiment::altExpNames(df)) {
+      stop(sprintf("altExp '%s' not found in the object.", altExp_name))
+    }
+    message(sprintf(">> Plotting selected altExp: %s", altExp_name))
+    df <- SingleCellExperiment::altExp(df, altExp_name)
   }
 
-  # ---- 2. Generalized Pivoting (Works for SE and DF) ----
+  if (inherits(df, "SummarizedExperiment")) {
+    rd <- SummarizedExperiment::rowData(df)
+
+    is_list_col <- vapply(rd, function(x) inherits(x, "List") || is.list(x), logical(1))
+
+    if (any(is_list_col)) {
+      message(">> Unnesting S4 List columns for multi-isoform metaprofile plotting...")
+      lens <- lengths(rd[[which(is_list_col)[1]]])
+
+      flat_list <- lapply(as.list(rd), function(col) {
+        if (inherits(col, "List") || is.list(col)) as.vector(unlist(col))
+        else rep(col, lens)
+      })
+      df <- as.data.frame(flat_list, stringsAsFactors = FALSE)
+
+      if (!"site_id" %in% colnames(df)) df$site_id <- rep(rownames(rd), lens)
+
+    } else {
+      df <- as.data.frame(rd, stringsAsFactors = FALSE)
+      if (!"site_id" %in% colnames(df)) df$site_id <- rownames(rd)
+    }
+  }
+
   if (!is.null(pivot_cols)) {
     df <- df |>
       tidyr::pivot_longer(
@@ -64,7 +94,6 @@ plot_metaprofile <- function(df,
     if (is.null(split_by)) split_by <- "comp"
   }
 
-  # ---- 3. Robust Filtering ----
   if (!is.null(filter_list)) {
     if (!is.list(filter_list)) filter_list <- as.list(filter_list)
 
@@ -83,10 +112,9 @@ plot_metaprofile <- function(df,
     }
   }
 
-  # ---- 4. Argument Checks and Defaults ----
   default_pos_cols <- c(transcript_id = "ensembl_transcript_id",
-                        pos = "zero-based_position",
-                        count = "id")
+                        pos = "tx_start",
+                        count = "site_id")
 
   if (!is.null(pos_df_cols)) {
     if (is.null(names(pos_df_cols))) stop("`pos_df_cols` must be a named vector or list.")
@@ -135,7 +163,6 @@ plot_metaprofile <- function(df,
     }
   }
 
-  # ---- 5. Setup and Data Frame Joining ----
   bins_5utr <- round(total_bins * proportions["utr5"])
   bins_cds <- round(total_bins * proportions["cds"])
   bins_3utr <- total_bins - (bins_5utr + bins_cds)
@@ -148,7 +175,6 @@ plot_metaprofile <- function(df,
     stop("'join_by_cols' must be 'auto' or a named vector, e.g. c('df_col_name' = 'anno_df_col_name').")
   }
 
-  # ---- 6. Binning Logic ----
   pos_sym <- rlang::sym(pos_df_cols["pos"])
   count_sym <- rlang::sym(pos_df_cols["count"])
 
@@ -184,7 +210,6 @@ plot_metaprofile <- function(df,
     )) |>
     dplyr::mutate(bin = pmin(.data$bin, total_bins, na.rm = TRUE))
 
-  # ---- 7. Metaprofile Input Data and Plot Generation ----
   y_col_name <- ifelse(percentages, "perc", "count")
   y_sym <- rlang::sym(y_col_name)
 
@@ -269,6 +294,5 @@ plot_metaprofile <- function(df,
           panel.grid.major = element_blank(),
           legend.position = "top")
 
-  # ---- 8. Output ----
   return(gg_met)
 }

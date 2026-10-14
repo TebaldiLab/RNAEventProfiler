@@ -4,7 +4,7 @@
 #' It calculates precise algebraic Deltas (difference in ratios) per contrast and categorizes
 #' events into discrete classes based on parameter thresholds directly inside the SummarizedExperiment's rowData.
 #'
-#' @param se A SummarizedExperiment (SE) object.
+#' @param se A SummarizedExperiment or SingleCellExperiment object.
 #' @param condition Character. The column name in colData(se) defining the experimental groups.
 #' @param contrasts Character vector (preferably named) defining the algebraic contrasts (e.g., c("DF1_vs_Control" = "DF1_adar - adar_only")).
 #' @param norm_method Character. Normalization method to apply ("none", "TMM", etc.). Default: "TMM".
@@ -15,13 +15,14 @@
 #' @param delta_threshold Numeric. Threshold for the absolute editing Delta (ratio difference). Default: 0.01.
 #' @param alternative Character. Directional testing: "two.sided", "greater", "less". Default: "two.sided".
 #' @param pseudocount_offset Numeric. Small offset added to coverage to avoid log(0) errors. Default: 1e-6.
-#' @param use_coverage_offset Logical. If TRUE, uses total coverage as an offset for ratio-based editing analysis. If FALSE, performs standard count-based RNA-seq analysis. Default: TRUE.
+#' @param use_coverage_offset Logical. If TRUE, uses total coverage as an offset for ratio-based editing analysis. Default: TRUE.
+#' @param altExp_name Character. The name of the altExp to analyze (e.g., "agg_tx_distance"). If NULL, analyzes the main object. Default: NULL.
 #'
-#' @return The input SummarizedExperiment object with comprehensive statistical results
-#'         and factorized classes ("=", "-", "+") appended to its rowData.
+#' @return The input object with statistical results added to the target rowData.
 #' @importFrom edgeR DGEList calcNormFactors estimateDisp glmQLFit glmQLFTest glmFit glmLRT topTags
 #' @importFrom limma makeContrasts
 #' @importFrom SummarizedExperiment assay colData rowData rowData<- rowRanges
+#' @importFrom SingleCellExperiment altExp altExp<- altExpNames
 #' @importFrom GenomicRanges seqnames start end strand
 #' @importFrom S4Vectors DataFrame
 #' @importFrom stats model.matrix p.adjust
@@ -35,22 +36,39 @@ run_differential_analysis <- function(se, condition, contrasts,
                                       delta_threshold = 0.01,
                                       alternative = "two.sided",
                                       pseudocount_offset = 1e-6,
-                                      use_coverage_offset = TRUE) {
+                                      use_coverage_offset = TRUE,
+                                      altExp_name = NULL) {
 
   if (!requireNamespace("limma", quietly = TRUE)) stop("Install 'limma' package.")
 
-  if (!condition %in% colnames(SummarizedExperiment::colData(se))) stop(paste("Column", condition, "not found."))
+  # Gestione dell'estrazione automatica da SingleCellExperiment
+  if (!is.null(altExp_name)) {
+    if (!inherits(se, "SingleCellExperiment")) {
+      stop("L'oggetto deve essere un SingleCellExperiment per utilizzare 'altExp_name'.")
+    }
+    if (!altExp_name %in% SingleCellExperiment::altExpNames(se)) {
+      stop(sprintf("altExp '%s' non trovato nell'oggetto.", altExp_name))
+    }
+    message(sprintf(">> Analisi differenziale sul subset: %s", altExp_name))
+    target_se <- SingleCellExperiment::altExp(se, altExp_name)
+  } else {
+    target_se <- se
+  }
 
-  raw_groups <- as.character(SummarizedExperiment::colData(se)[[condition]])
+  if (!condition %in% colnames(SummarizedExperiment::colData(target_se))) {
+    stop(paste("Colonna", condition, "non trovata nei metadati dei campioni (colData)."))
+  }
+
+  raw_groups <- as.character(SummarizedExperiment::colData(target_se)[[condition]])
   groups <- trimws(raw_groups)
 
-  counts_event <- SummarizedExperiment::assay(se, "event")
-  counts_tot <- SummarizedExperiment::assay(se, "total")
+  counts_event <- SummarizedExperiment::assay(target_se, "event")
+  counts_tot <- SummarizedExperiment::assay(target_se, "total")
 
-  results_wide <- SummarizedExperiment::rowData(se)
+  results_wide <- SummarizedExperiment::rowData(target_se)
 
-  if (!is.null(SummarizedExperiment::rowRanges(se))) {
-    rr <- SummarizedExperiment::rowRanges(se)
+  if (!is.null(SummarizedExperiment::rowRanges(target_se))) {
+    rr <- SummarizedExperiment::rowRanges(target_se)
 
     coord_df <- S4Vectors::DataFrame(
       chr = as.character(GenomicRanges::seqnames(rr)),
@@ -118,10 +136,10 @@ run_differential_analysis <- function(se, condition, contrasts,
     message(paste0("Testing contrast: ", contr_name, " (", contr_string, ")"))
 
     contr_vec_matrix <- limma::makeContrasts(contrasts = contr_string, levels = design)
-    weights <- contr_vec_matrix[, 1] # Extract weights
+    weights <- contr_vec_matrix[, 1]
 
     res_test <- if (method == "QLF") edgeR::glmQLFTest(fit, contrast = contr_vec_matrix) else edgeR::glmLRT(fit, contrast = contr_vec_matrix)
-    res_tab <- edgeR::topTags(res_test, n = nrow(se), sort.by = "none")$table
+    res_tab <- edgeR::topTags(res_test, n = nrow(target_se), sort.by = "none")$table
 
     active_idx <- weights != 0
     delta_val <- as.numeric(group_means_raw[, active_idx, drop=FALSE] %*% weights[active_idx])
@@ -135,8 +153,7 @@ run_differential_analysis <- function(se, condition, contrasts,
     stat_val <- if(stat_type == "FDR") fdr_final else p_final
     is_sig <- (stat_val < p_threshold) & (abs(res_tab$logFC) > lfc_threshold) & (abs(delta_val) > delta_threshold)
 
-    class_vec <- rep("=", nrow(se))
-
+    class_vec <- rep("=", nrow(target_se))
     class_vec[which(is_sig & res_tab$logFC > 0 & delta_val > 0)] <- "+"
     class_vec[which(is_sig & res_tab$logFC < 0 & delta_val < 0)] <- "-"
 
@@ -157,7 +174,14 @@ run_differential_analysis <- function(se, condition, contrasts,
     results_wide <- cbind(results_wide, this_contrast_df)
   }
 
-  SummarizedExperiment::rowData(se) <- results_wide
+  SummarizedExperiment::rowData(target_se) <- results_wide
   message(paste("Analysis complete. Added results for", length(contrasts), "contrasts to rowData."))
-  return(se)
+
+  # Salvataggio dinamico nell'oggetto originale
+  if (!is.null(altExp_name)) {
+    SingleCellExperiment::altExp(se, altExp_name) <- target_se
+    return(se)
+  } else {
+    return(target_se)
+  }
 }

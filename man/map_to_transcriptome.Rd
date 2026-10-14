@@ -4,7 +4,8 @@
 \alias{map_to_transcriptome}
 \title{Map Genomic Coordinates to Transcriptomic Coordinates}
 \usage{
-map_to_transcriptome(x, ense, enst, ensg, keep_canonical = TRUE)
+map_to_transcriptome(x, ense, enst, ensg, keep_canonical = TRUE,
+  altExp_name = NULL)
 }
 \arguments{
 \item{x}{A SummarizedExperiment or a GRanges object.}
@@ -16,6 +17,8 @@ map_to_transcriptome(x, ense, enst, ensg, keep_canonical = TRUE)
 \item{ensg}{data.frame. Gene annotations.}
 
 \item{keep_canonical}{Logical. If TRUE, keeps only mappings to canonical transcripts.}
+
+\item{altExp_name}{Character or NULL. If set, map the named altExp of a SingleCellExperiment.}
 }
 \value{
 The same object class as input (SummarizedExperiment or GRanges) with updated metadata containing transcriptomic coordinates.

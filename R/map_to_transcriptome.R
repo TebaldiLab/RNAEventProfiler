@@ -1,8 +1,9 @@
 #' Map Genomic Coordinates to Transcriptomic Coordinates
 #'
 #' Maps genomic sites to transcriptomic (cDNA) coordinates using Ensembl annotations.
+#' Retains all available metadata columns provided in the annotation data frames.
 #' If keep_canonical = TRUE, outputs standard flat vectors.
-#' If keep_canonical = FALSE, outputs S4 List columns (CharacterList, IntegerList)
+#' If keep_canonical = FALSE, outputs dynamically typed S4 List columns
 #' to preserve 1:1 geometry of the input object while holding multiple isoforms.
 #'
 #' @param x A SummarizedExperiment or a GRanges object.
@@ -10,17 +11,33 @@
 #' @param enst data.frame. Transcript annotations.
 #' @param ensg data.frame. Gene annotations.
 #' @param keep_canonical Logical. If TRUE, keeps only mappings to canonical transcripts.
+#' @param altExp_name Character or NULL. If set, map the named altExp of a SingleCellExperiment.
 #'
 #' @return The same object class as input with updated metadata containing transcriptomic coordinates.
 #' @importFrom GenomicRanges GRanges findOverlaps
-#' @importFrom IRanges IRanges
+#' @importFrom IRanges IRanges IntegerList NumericList LogicalList CharacterList
 #' @importFrom SummarizedExperiment rowRanges rowData rowData<-
-#' @importFrom S4Vectors DataFrame queryHits subjectHits mcols mcols<- CharacterList IntegerList
-#' @importFrom dplyr left_join select filter any_of group_by summarise slice ungroup
+#' @importFrom SingleCellExperiment altExp altExpNames altExp<-
+#' @importFrom S4Vectors DataFrame queryHits subjectHits mcols mcols<-
+#' @importFrom dplyr left_join filter group_by summarise slice ungroup across everything
 #' @export
-map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
+map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE,
+                                altExp_name = NULL) {
 
   message("--- Starting Genome -> Transcriptome Mapping ---")
+
+  parent_x <- NULL
+  if (!is.null(altExp_name)) {
+    if (!inherits(x, "SingleCellExperiment")) {
+      stop("'altExp_name' requires a SingleCellExperiment input.")
+    }
+    if (!altExp_name %in% SingleCellExperiment::altExpNames(x)) {
+      stop(sprintf("altExp '%s' not found in the object.", altExp_name))
+    }
+    parent_x <- x
+    x <- SingleCellExperiment::altExp(parent_x, altExp_name)
+    message(sprintf(">> Mapping selected altExp: %s", altExp_name))
+  }
 
   is_se <- inherits(x, "SummarizedExperiment")
   is_gr <- inherits(x, "GRanges")
@@ -43,17 +60,24 @@ map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
   names(site_gr) <- orig_ids
 
   anno_full <- ense
-
-  cols_from_enst <- c("ensembl_transcript_id", "ensembl_gene_id", "canonical", "external_transcript_name")
-  if (!all(cols_from_enst %in% colnames(anno_full))) {
-    anno_full <- dplyr::left_join(anno_full, dplyr::select(enst, dplyr::any_of(cols_from_enst)), by = "ensembl_transcript_id")
+  if (!missing(enst) && is.data.frame(enst)) {
+    join_cols <- intersect(colnames(anno_full), colnames(enst))
+    if ("ensembl_transcript_id" %in% join_cols) {
+      anno_full <- dplyr::left_join(anno_full, enst, by = join_cols)
+    }
   }
 
-  if (!"external_gene_name" %in% colnames(anno_full)) {
-    anno_full <- dplyr::left_join(anno_full, dplyr::select(ensg, external_gene_name, ensembl_gene_id, chr_ucsc, strand_ucsc), by = "ensembl_gene_id")
+  if (!missing(ensg) && is.data.frame(ensg)) {
+    join_cols <- intersect(colnames(anno_full), colnames(ensg))
+    if ("ensembl_gene_id" %in% join_cols) {
+      anno_full <- dplyr::left_join(anno_full, ensg, by = join_cols)
+    }
   }
 
-  if (!"rank" %in% colnames(anno_full)) anno_full$rank <- NA
+  req_cols <- c("chr_ucsc", "exon_chrom_start", "exon_chrom_end", "strand_ucsc", "cdna_start")
+  if (!all(req_cols %in% colnames(anno_full))) {
+    stop("Mancano colonne strutturali critiche (chr_ucsc, exon_chrom_start, ecc.) in 'ense'.")
+  }
 
   ense_gr <- GenomicRanges::GRanges(
     seqnames = anno_full$chr_ucsc,
@@ -61,15 +85,22 @@ map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
     strand = anno_full$strand_ucsc
   )
 
-  S4Vectors::mcols(ense_gr) <- anno_full[, c("ensembl_transcript_id", "external_transcript_name",
-                                             "canonical", "ensembl_exon_id", "rank",
-                                             "cdna_start", "exon_chrom_start", "exon_chrom_end")]
+  meta_cols <- setdiff(colnames(anno_full), c("chr_ucsc", "exon_chrom_start", "exon_chrom_end", "strand_ucsc"))
+  S4Vectors::mcols(ense_gr) <- anno_full[, meta_cols, drop = FALSE]
 
   message(">> Calculating strict within-exon overlaps...")
   overlaps <- GenomicRanges::findOverlaps(site_gr, ense_gr, type = "within")
 
+  mapped_indices <- unique(S4Vectors::queryHits(overlaps))
+  unmapped_count <- length(site_gr) - length(mapped_indices)
+
+  if (unmapped_count > 0) {
+    message(sprintf(">> Note: %d sites fell outside annotated exons (e.g., intronic or intergenic) and were ignored for transcriptomic mapping.", unmapped_count))
+  }
+
   if (length(overlaps) == 0) {
     warning("No overlaps found. Returning unmodified object.")
+    if (!is.null(parent_x)) return(parent_x)
     return(x)
   }
 
@@ -78,87 +109,101 @@ map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
 
   site_ids <- names(gr_sites_sub)
 
-  df_sites <- as.data.frame(gr_sites_sub)
-  df_exons <- as.data.frame(gr_exons_sub)
+  df_sites <- as.data.frame(gr_sites_sub, row.names = NULL)
+  df_exons <- as.data.frame(gr_exons_sub, row.names = NULL)
+
   df_sites$site_id <- site_ids
 
   tx_start <- rep(NA_integer_, nrow(df_sites))
-  tx_end <- rep(NA_integer_, nrow(df_sites))
+  tx_end   <- rep(NA_integer_, nrow(df_sites))
 
-  pos_idx <- df_sites$strand == "+"
-  if (any(pos_idx)) {
-    tx_start[pos_idx] <- df_exons$cdna_start[pos_idx] + (df_sites$start[pos_idx] - df_exons$exon_chrom_start[pos_idx])
-    tx_end[pos_idx]   <- df_exons$cdna_start[pos_idx] + (df_sites$end[pos_idx] - df_exons$exon_chrom_start[pos_idx])
+  cdna_start_vec <- as.numeric(df_exons$cdna_start)
+
+  exon_start_vec <- as.numeric(df_exons$start)
+  exon_end_vec   <- as.numeric(df_exons$end)
+
+  site_start_vec <- as.numeric(df_sites$start)
+  site_end_vec   <- as.numeric(df_sites$end)
+
+  pos_idx <- which(df_sites$strand == "+")
+  if (length(pos_idx) > 0) {
+    tx_start[pos_idx] <- cdna_start_vec[pos_idx] + (site_start_vec[pos_idx] - exon_start_vec[pos_idx])
+    tx_end[pos_idx]   <- cdna_start_vec[pos_idx] + (site_end_vec[pos_idx] - exon_start_vec[pos_idx])
   }
 
-  neg_idx <- df_sites$strand == "-"
-  if (any(neg_idx)) {
-    tx_start[neg_idx] <- df_exons$cdna_start[neg_idx] + (df_exons$exon_chrom_end[neg_idx] - df_sites$end[neg_idx])
-    tx_end[neg_idx]   <- df_exons$cdna_start[neg_idx] + (df_exons$exon_chrom_end[neg_idx] - df_sites$start[neg_idx])
+  neg_idx <- which(df_sites$strand == "-")
+  if (length(neg_idx) > 0) {
+    tx_start[neg_idx] <- cdna_start_vec[neg_idx] + (exon_end_vec[neg_idx] - site_end_vec[neg_idx])
+    tx_end[neg_idx]   <- cdna_start_vec[neg_idx] + (exon_end_vec[neg_idx] - site_start_vec[neg_idx])
   }
 
   mapped_df <- data.frame(
     site_id = df_sites$site_id,
     tx_start = tx_start,
     tx_end = tx_end,
-    ensembl_transcript_id = df_exons$ensembl_transcript_id,
-    external_transcript_name = df_exons$external_transcript_name,
-    ensembl_exon_id = df_exons$ensembl_exon_id,
-    canonical = df_exons$canonical,
-    exon_rank = df_exons$rank,
     stringsAsFactors = FALSE
   )
+
+  cols_to_add <- setdiff(colnames(df_exons), c("seqnames", "start", "end", "width", "strand"))
+  mapped_df <- cbind(mapped_df, df_exons[, cols_to_add, drop = FALSE])
 
   rd <- if (is_se) SummarizedExperiment::rowData(x) else S4Vectors::mcols(x)
 
   if (keep_canonical) {
     message(">> Structuring metadata (Flat vectors for canonical transcripts)...")
 
+    if (!"canonical" %in% colnames(mapped_df)) stop("Colonna 'canonical' mancante per il filtro.")
+
     mapped_collapsed <- mapped_df %>%
-      dplyr::filter(canonical == "T" | canonical == TRUE) %>%
+      dplyr::filter(canonical == "T" | canonical == TRUE | canonical == 1) %>%
       dplyr::group_by(site_id) %>%
       dplyr::slice(1) %>%
       dplyr::ungroup()
 
     idx <- match(orig_ids, mapped_collapsed$site_id)
 
-    rd$tx_start <- mapped_collapsed$tx_start[idx]
-    rd$tx_end <- mapped_collapsed$tx_end[idx]
-    rd$ensembl_transcript_id <- mapped_collapsed$ensembl_transcript_id[idx]
-    rd$external_transcript_name <- mapped_collapsed$external_transcript_name[idx]
-    rd$ensembl_exon_id <- mapped_collapsed$ensembl_exon_id[idx]
-    rd$canonical <- mapped_collapsed$canonical[idx]
-    rd$exon_rank <- mapped_collapsed$exon_rank[idx]
+    cols_to_assign <- setdiff(colnames(mapped_collapsed), "site_id")
+    for (col in cols_to_assign) {
+      rd[[col]] <- mapped_collapsed[[col]][idx]
+    }
 
   } else {
-    message(">> Structuring metadata (Collapsing multiple isoforms into S4 Lists)...")
+    message(">> Structuring metadata (Collapsing multiple isoforms into dynamically typed S4 Lists)...")
 
     mapped_collapsed <- mapped_df %>%
       dplyr::group_by(site_id) %>%
-      dplyr::summarise(
-        tx_start                 = list(tx_start),
-        tx_end                   = list(tx_end),
-        ensembl_transcript_id    = list(ensembl_transcript_id),
-        external_transcript_name = list(external_transcript_name),
-        ensembl_exon_id          = list(ensembl_exon_id),
-        canonical                = list(as.character(canonical)),
-        exon_rank                = list(as.integer(exon_rank)),
-        .groups                  = "drop"
-      )
-
-    s4_lists <- S4Vectors::DataFrame(
-      tx_start                 = IRanges::IntegerList(mapped_collapsed$tx_start),
-      tx_end                   = IRanges::IntegerList(mapped_collapsed$tx_end),
-      ensembl_transcript_id    = IRanges::CharacterList(mapped_collapsed$ensembl_transcript_id),
-      external_transcript_name = IRanges::CharacterList(mapped_collapsed$external_transcript_name),
-      ensembl_exon_id          = IRanges::CharacterList(mapped_collapsed$ensembl_exon_id),
-      canonical                = IRanges::CharacterList(mapped_collapsed$canonical),
-      exon_rank                = IRanges::IntegerList(mapped_collapsed$exon_rank)
-    )
+      dplyr::summarise(dplyr::across(dplyr::everything(), list), .groups = "drop")
 
     idx <- match(orig_ids, mapped_collapsed$site_id)
-    for (col in colnames(s4_lists)) {
-      rd[[col]] <- s4_lists[[col]][idx]
+    valid_mask <- !is.na(idx)
+
+    cols_to_assign <- setdiff(colnames(mapped_collapsed), "site_id")
+
+    for (col in cols_to_assign) {
+      base_class <- class(mapped_df[[col]])[1]
+      vals <- mapped_collapsed[[col]]
+
+      if (base_class %in% c("integer")) {
+        out <- rep(list(NA_integer_), length(orig_ids))
+        out[valid_mask] <- vals[idx[valid_mask]]
+        rd[[col]] <- IRanges::IntegerList(out)
+
+      } else if (base_class %in% c("numeric", "double")) {
+        out <- rep(list(NA_real_), length(orig_ids))
+        out[valid_mask] <- vals[idx[valid_mask]]
+        rd[[col]] <- IRanges::NumericList(out)
+
+      } else if (base_class %in% c("logical")) {
+        out <- rep(list(NA), length(orig_ids))
+        out[valid_mask] <- vals[idx[valid_mask]]
+        rd[[col]] <- IRanges::LogicalList(out)
+
+      } else {
+        out <- rep(list(NA_character_), length(orig_ids))
+        vals_char <- lapply(vals, as.character)
+        out[valid_mask] <- vals_char[idx[valid_mask]]
+        rd[[col]] <- IRanges::CharacterList(out)
+      }
     }
   }
 
@@ -169,5 +214,9 @@ map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
   }
 
   message(sprintf(">> Done! Annotated %d unique genomic sites.", sum(!is.na(idx))))
+  if (!is.null(parent_x)) {
+    SingleCellExperiment::altExp(parent_x, altExp_name) <- x
+    return(parent_x)
+  }
   return(x)
 }
