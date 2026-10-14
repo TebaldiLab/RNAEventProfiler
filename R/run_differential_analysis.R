@@ -23,7 +23,8 @@
 #' @importFrom limma makeContrasts
 #' @importFrom SummarizedExperiment assay colData rowData rowData<- rowRanges
 #' @importFrom GenomicRanges seqnames start end strand
-#' @importFrom stats aggregate complete.cases model.matrix na.pass p.adjust
+#' @importFrom S4Vectors DataFrame
+#' @importFrom stats model.matrix p.adjust
 #' @export
 run_differential_analysis <- function(se, condition, contrasts,
                                       norm_method = "TMM",
@@ -38,30 +39,32 @@ run_differential_analysis <- function(se, condition, contrasts,
 
   if (!requireNamespace("limma", quietly = TRUE)) stop("Install 'limma' package.")
 
-  if (!condition %in% colnames(colData(se))) stop(paste("Column", condition, "not found."))
+  if (!condition %in% colnames(SummarizedExperiment::colData(se))) stop(paste("Column", condition, "not found."))
 
-  raw_groups <- as.character(colData(se)[[condition]])
+  raw_groups <- as.character(SummarizedExperiment::colData(se)[[condition]])
   groups <- trimws(raw_groups)
 
-  counts_event <- assay(se, "event")
-  counts_tot <- assay(se, "total")
+  counts_event <- SummarizedExperiment::assay(se, "event")
+  counts_tot <- SummarizedExperiment::assay(se, "total")
 
-  results_wide <- as.data.frame(rowData(se))
-  if (!is.null(rowRanges(se))) {
-    rr <- rowRanges(se)
-    coord_df <- data.frame(
+  results_wide <- SummarizedExperiment::rowData(se)
+
+  if (!is.null(SummarizedExperiment::rowRanges(se))) {
+    rr <- SummarizedExperiment::rowRanges(se)
+
+    coord_df <- S4Vectors::DataFrame(
       chr = as.character(GenomicRanges::seqnames(rr)),
       start = GenomicRanges::start(rr),
       end = GenomicRanges::end(rr),
-      strand = as.character(GenomicRanges::strand(rr)),
-      stringsAsFactors = FALSE
+      strand = as.character(GenomicRanges::strand(rr))
     )
+
     cols_to_add <- setdiff(colnames(coord_df), colnames(results_wide))
     if(length(cols_to_add) > 0) results_wide <- cbind(coord_df[, cols_to_add, drop=FALSE], results_wide)
   }
 
   f_groups <- factor(groups, levels = unique(groups))
-  design <- model.matrix(~0 + f_groups)
+  design <- stats::model.matrix(~0 + f_groups)
   colnames(design) <- levels(f_groups)
 
   y <- edgeR::DGEList(counts = counts_event, group = groups)
@@ -93,14 +96,13 @@ run_differential_analysis <- function(se, condition, contrasts,
   if (method == "QLF") fit <- edgeR::glmQLFit(y, design, robust = TRUE)
   else fit <- edgeR::glmFit(y, design)
 
-
   ratio_mat <- counts_event / counts_tot
 
   group_means_raw <- sapply(colnames(design), function(g) {
     rowMeans(ratio_mat[, groups == g, drop=FALSE], na.rm=TRUE)
   })
 
-  group_means_df <- as.data.frame(group_means_raw)
+  group_means_df <- S4Vectors::DataFrame(group_means_raw)
   colnames(group_means_df) <- paste0("Mean_", colnames(group_means_df))
 
   results_wide <- cbind(results_wide, group_means_df)
@@ -124,12 +126,11 @@ run_differential_analysis <- function(se, condition, contrasts,
     active_idx <- weights != 0
     delta_val <- as.numeric(group_means_raw[, active_idx, drop=FALSE] %*% weights[active_idx])
 
-    # One-Tailed Logic
     p_final <- res_tab$PValue
     if (alternative == "greater") p_final <- ifelse(res_tab$logFC > 0, res_tab$PValue/2, 1 - res_tab$PValue/2)
     else if (alternative == "less") p_final <- ifelse(res_tab$logFC < 0, res_tab$PValue/2, 1 - res_tab$PValue/2)
 
-    fdr_final <- p.adjust(p_final, method = "BH")
+    fdr_final <- stats::p.adjust(p_final, method = "BH")
 
     stat_val <- if(stat_type == "FDR") fdr_final else p_final
     is_sig <- (stat_val < p_threshold) & (abs(res_tab$logFC) > lfc_threshold) & (abs(delta_val) > delta_threshold)
@@ -144,7 +145,7 @@ run_differential_analysis <- function(se, condition, contrasts,
 
     class_factor <- factor(class_vec, levels = c("=", "-", "+"))
 
-    this_contrast_df <- data.frame(
+    this_contrast_df <- S4Vectors::DataFrame(
       log2FC = res_tab$logFC,
       PValue = p_final,
       FDR    = fdr_final,
@@ -156,7 +157,7 @@ run_differential_analysis <- function(se, condition, contrasts,
     results_wide <- cbind(results_wide, this_contrast_df)
   }
 
-  rowData(se) <- results_wide
+  SummarizedExperiment::rowData(se) <- results_wide
   message(paste("Analysis complete. Added results for", length(contrasts), "contrasts to rowData."))
   return(se)
 }

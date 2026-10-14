@@ -15,7 +15,7 @@
 #' @return A SummarizedExperiment object containing 'event', 'total', and 'ratio' assays,
 #'         with rowRanges of width 1 (if fix_coords is used).
 #' @importFrom GenomicRanges makeGRangesFromDataFrame resize
-#' @importFrom SummarizedExperiment SummarizedExperiment
+#' @importFrom SingleCellExperiment SingleCellExperiment
 #' @export
 generate_SE_object <- function(event_counts, total_counts, colData, rowInfo,
                                fix_coords = "none", metadata = list()) {
@@ -38,7 +38,7 @@ generate_SE_object <- function(event_counts, total_counts, colData, rowInfo,
     tryCatch({
       GenomicRanges::makeGRangesFromDataFrame(
         df, keep.extra.columns = TRUE, ignore.strand = FALSE,
-        starts.in.df.are.0based = FALSE # Assumiamo input standard R (1-based)
+        starts.in.df.are.0based = FALSE
       )
     }, error = function(e) {
       stop("Error converting rowInfo to GRanges. Ensure columns 'chr', 'start', 'end' exist.")
@@ -85,13 +85,13 @@ generate_SE_object <- function(event_counts, total_counts, colData, rowInfo,
   ratio_matrix <- event_counts / total_counts
   ratio_matrix[total_counts == 0] <- NA
 
-  se <- SummarizedExperiment::SummarizedExperiment(
+  se <- SingleCellExperiment::SingleCellExperiment(
     assays = list(event = event_counts, total = total_counts, ratio = ratio_matrix),
     colData = colData,
     rowRanges = final_rowRanges,
     metadata = c(metadata, list(coordinate_fix = fix_coords))
   )
 
-  message(paste("SummarizedExperiment created successfully:", nrow(se), "sites, width fixed to:", fix_coords))
+  message(paste("SingleCellExperiment created successfully:", nrow(se), "sites, width fixed to:", fix_coords))
   return(se)
 }

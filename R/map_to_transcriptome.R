@@ -1,7 +1,9 @@
 #' Map Genomic Coordinates to Transcriptomic Coordinates
 #'
 #' Maps genomic sites to transcriptomic (cDNA) coordinates using Ensembl annotations.
-#' Accepts both SummarizedExperiment and standard GRanges objects.
+#' If keep_canonical = TRUE, outputs standard flat vectors.
+#' If keep_canonical = FALSE, outputs S4 List columns (CharacterList, IntegerList)
+#' to preserve 1:1 geometry of the input object while holding multiple isoforms.
 #'
 #' @param x A SummarizedExperiment or a GRanges object.
 #' @param ense data.frame. Exon annotations.
@@ -9,12 +11,12 @@
 #' @param ensg data.frame. Gene annotations.
 #' @param keep_canonical Logical. If TRUE, keeps only mappings to canonical transcripts.
 #'
-#' @return The same object class as input (SummarizedExperiment or GRanges) with updated metadata containing transcriptomic coordinates.
+#' @return The same object class as input with updated metadata containing transcriptomic coordinates.
 #' @importFrom GenomicRanges GRanges findOverlaps
 #' @importFrom IRanges IRanges
-#' @importFrom SummarizedExperiment rowRanges rowData rowData
-#' @importFrom S4Vectors DataFrame queryHits subjectHits mcols mcols
-#' @importFrom dplyr left_join select filter any_of
+#' @importFrom SummarizedExperiment rowRanges rowData rowData<-
+#' @importFrom S4Vectors DataFrame queryHits subjectHits mcols mcols<- CharacterList IntegerList
+#' @importFrom dplyr left_join select filter any_of group_by summarise slice ungroup
 #' @export
 map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
 
@@ -26,13 +28,19 @@ map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
   if (is_se) {
     site_gr <- SummarizedExperiment::rowRanges(x)
     if (length(site_gr) == 0) stop("SummarizedExperiment has empty rowRanges.")
-    if (is.null(names(site_gr))) names(site_gr) <- rownames(x)
+    orig_ids <- rownames(x)
   } else if (is_gr) {
     site_gr <- x
-    if (is.null(names(site_gr))) names(site_gr) <- paste0("site_", seq_along(site_gr))
+    orig_ids <- names(x)
   } else {
     stop("Input 'x' must be a SummarizedExperiment or a GRanges object.")
   }
+
+  if (is.null(orig_ids)) {
+    orig_ids <- paste0("site_", seq_len(if(is_se) nrow(x) else length(x)))
+    if (is_se) rownames(x) <- orig_ids else names(x) <- orig_ids
+  }
+  names(site_gr) <- orig_ids
 
   anno_full <- ense
 
@@ -69,8 +77,6 @@ map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
   gr_exons_sub <- ense_gr[S4Vectors::subjectHits(overlaps)]
 
   site_ids <- names(gr_sites_sub)
-  names(gr_sites_sub) <- NULL
-  names(gr_exons_sub) <- NULL
 
   df_sites <- as.data.frame(gr_sites_sub)
   df_exons <- as.data.frame(gr_exons_sub)
@@ -99,29 +105,69 @@ map_to_transcriptome <- function(x, ense, enst, ensg, keep_canonical = TRUE) {
     external_transcript_name = df_exons$external_transcript_name,
     ensembl_exon_id = df_exons$ensembl_exon_id,
     canonical = df_exons$canonical,
-    exon_rank = df_exons$rank
+    exon_rank = df_exons$rank,
+    stringsAsFactors = FALSE
   )
 
-  if (keep_canonical) {
-    mapped_df <- dplyr::filter(mapped_df, canonical == "T" | canonical == TRUE)
-    mapped_df <- mapped_df[!duplicated(mapped_df$site_id), ]
-  }
+  rd <- if (is_se) SummarizedExperiment::rowData(x) else S4Vectors::mcols(x)
 
-  message(sprintf(">> Done! Mapped %d sites to transcriptomic coordinates.", sum(!is.na(mapped_df$tx_start))))
+  if (keep_canonical) {
+    message(">> Structuring metadata (Flat vectors for canonical transcripts)...")
+
+    mapped_collapsed <- mapped_df %>%
+      dplyr::filter(canonical == "T" | canonical == TRUE) %>%
+      dplyr::group_by(site_id) %>%
+      dplyr::slice(1) %>%
+      dplyr::ungroup()
+
+    idx <- match(orig_ids, mapped_collapsed$site_id)
+
+    rd$tx_start <- mapped_collapsed$tx_start[idx]
+    rd$tx_end <- mapped_collapsed$tx_end[idx]
+    rd$ensembl_transcript_id <- mapped_collapsed$ensembl_transcript_id[idx]
+    rd$external_transcript_name <- mapped_collapsed$external_transcript_name[idx]
+    rd$ensembl_exon_id <- mapped_collapsed$ensembl_exon_id[idx]
+    rd$canonical <- mapped_collapsed$canonical[idx]
+    rd$exon_rank <- mapped_collapsed$exon_rank[idx]
+
+  } else {
+    message(">> Structuring metadata (Collapsing multiple isoforms into S4 Lists)...")
+
+    mapped_collapsed <- mapped_df %>%
+      dplyr::group_by(site_id) %>%
+      dplyr::summarise(
+        tx_start                 = list(tx_start),
+        tx_end                   = list(tx_end),
+        ensembl_transcript_id    = list(ensembl_transcript_id),
+        external_transcript_name = list(external_transcript_name),
+        ensembl_exon_id          = list(ensembl_exon_id),
+        canonical                = list(as.character(canonical)),
+        exon_rank                = list(as.integer(exon_rank)),
+        .groups                  = "drop"
+      )
+
+    s4_lists <- S4Vectors::DataFrame(
+      tx_start                 = IRanges::IntegerList(mapped_collapsed$tx_start),
+      tx_end                   = IRanges::IntegerList(mapped_collapsed$tx_end),
+      ensembl_transcript_id    = IRanges::CharacterList(mapped_collapsed$ensembl_transcript_id),
+      external_transcript_name = IRanges::CharacterList(mapped_collapsed$external_transcript_name),
+      ensembl_exon_id          = IRanges::CharacterList(mapped_collapsed$ensembl_exon_id),
+      canonical                = IRanges::CharacterList(mapped_collapsed$canonical),
+      exon_rank                = IRanges::IntegerList(mapped_collapsed$exon_rank)
+    )
+
+    idx <- match(orig_ids, mapped_collapsed$site_id)
+    for (col in colnames(s4_lists)) {
+      rd[[col]] <- s4_lists[[col]][idx]
+    }
+  }
 
   if (is_se) {
-    rd <- as.data.frame(SummarizedExperiment::rowData(x))
-    rd$site_id_temp <- rownames(rd)
-    rd_merged <- dplyr::left_join(rd, mapped_df, by = c("site_id_temp" = "site_id"))
-    rd_merged$site_id_temp <- NULL
-    SummarizedExperiment::rowData(x) <- S4Vectors::DataFrame(rd_merged)
-    return(x)
+    SummarizedExperiment::rowData(x) <- rd
   } else {
-    mc <- as.data.frame(S4Vectors::mcols(x))
-    mc$site_id_temp <- names(x)
-    mc_merged <- dplyr::left_join(mc, mapped_df, by = c("site_id_temp" = "site_id"))
-    mc_merged$site_id_temp <- NULL
-    S4Vectors::mcols(x) <- S4Vectors::DataFrame(mc_merged)
-    return(x)
+    S4Vectors::mcols(x) <- rd
   }
+
+  message(sprintf(">> Done! Annotated %d unique genomic sites.", sum(!is.na(idx))))
+  return(x)
 }
