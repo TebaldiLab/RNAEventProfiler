@@ -151,7 +151,7 @@ run_differential_analysis <- function(se, condition, contrasts,
     fdr_final <- stats::p.adjust(p_final, method = "BH")
 
     stat_val <- if(stat_type == "FDR") fdr_final else p_final
-    is_sig <- (stat_val < p_threshold) & (abs(res_tab$logFC) > lfc_threshold) & (abs(delta_val) > delta_threshold)
+    is_sig <- (stat_val <= p_threshold) & (abs(res_tab$logFC) >= lfc_threshold) & (abs(delta_val) >= delta_threshold)
 
     class_vec <- rep("=", nrow(target_se))
     class_vec[which(is_sig & res_tab$logFC > 0 & delta_val > 0)] <- "+"
